@@ -1,0 +1,100 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using MaximaSharp;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
+using Custom;
+using System.IO;
+
+namespace IDK
+{
+    public partial class Form1 : Form
+    {
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        private FileSystemWatcher fileWatcher;
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            pictureBox1.Image = null;
+            var exp = Maxima.ToExpression("double, double", "x", textBox1.Text);
+            var resul = exp.Integrate();
+            label1.Text = resul.ToString();
+
+            var gnu = CustomCommands.ToGnuplotString(resul);
+            Maxima.GnuPlot($@"
+                set terminal pngcairo size 500, 500                     # Set the output format and size
+                set output 'C:/Users/ded5t/source/repos/IDK/IDK/plot.png'  # Specify the output file name
+                set grid                                                  # Enable gridlines
+                set title 'Graph of {resul}'                        # Set the title of the plot
+                set xlabel 'x'                                          # Label for the x-axis
+                set ylabel 'y'                                          # Label for the y-axis
+                set xrange [-10:10]                                    # Set the range for the x-axis
+                set yrange [-10:10]                                   # Set the range for the y-axis
+                set style line 1 lc rgb 'blue' lw 2                     # Define line style for the plot (blue color, line width 2)
+                set style line 2 lc rgb 'black' lw 3                    # Define line style for the axes (black color, line width 3)
+
+                # Draw the x and y axes
+                set arrow from -10,0 to 10,0 nohead linecolor ls 2     # Horizontal x-axis
+                set arrow from 0,-50 to 0,500 nohead linecolor ls 2    # Vertical y-axis
+
+                plot {gnu} title '{resul}' with linespoints ls 1  # Plot the function with lines and points
+            ");
+            SetForegroundWindow(this.Handle);
+            System.Threading.Thread.Sleep(5000);
+            pictureBox1.Image = Image.FromFile("C:/Users/ded5t/source/repos/IDK/IDK/plot.png");
+            SetForegroundWindow(this.Handle);
+
+        }
+
+
+    }
+}
+
+
+
+
+public static LambdaExpression ToExpression(string types, string parameters, string code)
+        {
+            try
+            {
+                return VBCodeProvider.CreateProvider("VB", new Dictionary<string, string>() { { "CompilerVersion", "v4.0" } })
+                    .CompileAssemblyFromSource(new CompilerParameters(new[] { "System.Core.dll" }), string.Format(
+               @"   Imports System
+                    Imports System.Linq.Expressions
+                    Public Class Program 
+                        Public Shared Lambda As Expression(Of Func(Of {0})) = Function({1}) {2}
+                    End Class
+                ", types, parameters, code.Replace("log", "Math.Log").Replace("sin", "Math.Sin").Replace("cos", "Math.Cos")))
+                    .CompiledAssembly.GetType("Program").GetField("Lambda").GetValue(null) as LambdaExpression;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(string.Format("Failed to convert to expression: {0}", code), ex);
+            }
+        }
+
+        private static LambdaExpression EvalToExpression(this LambdaExpression expr, string format, params object[] args)
+        {
+            return ToExpression(string.Join(", ", expr.Type.GetGenericArguments().Select(t => t.Name)),
+                                string.Join(", ", expr.Parameters.Select(p => p.Name)),
+                                Eval(string.Format(format, args)));
+        }
